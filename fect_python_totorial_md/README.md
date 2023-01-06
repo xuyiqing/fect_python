@@ -1,8 +1,8 @@
 ```python
 import pandas as pd
 import numpy as np
-import fect_py as fpy
-from fect_py import Fect
+import fect_python as fpy
+from fect_python import Fect
 ```
 
 # Visualizing the treatment and outcome variables
@@ -299,8 +299,8 @@ out_fect.setFect("Y ~ D + X1 + X2", data = simdata, index =["id","time"],
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -354,21 +354,21 @@ out_ife.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id","time"],
 
 
 ​    
-    R[write to console]: Cross-validating ...
+​    R[write to console]: Cross-validating ...
 
 
 ​    
-    R[write to console]: Criterion: Mean Squared Prediction Error
+​    R[write to console]: Criterion: Mean Squared Prediction Error
 
 
 ​    
-    R[write to console]: Interactive fixed effects model...
+​    R[write to console]: Interactive fixed effects model...
 
 
 ​    
-    R[write to console]: 
-     r = 0; sigma2 = 6.35460; IC = 2.21891; PC = 6.08178; MSPE = 7.03824
-    
+​    R[write to console]: 
+​     r = 0; sigma2 = 6.35460; IC = 2.21891; PC = 6.08178; MSPE = 7.03824
+​    
     R[write to console]: 
      r = 1; sigma2 = 4.52698; IC = 2.24325; PC = 5.26760; MSPE = 5.54161
     
@@ -395,8 +395,8 @@ out_ife.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id","time"],
 
 ​    
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -433,21 +433,21 @@ out_mc.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id","time"],
 
 
 ​    
-    R[write to console]: Cross-validating ...
+​    R[write to console]: Cross-validating ...
 
 
 ​    
-    R[write to console]: Criterion: Mean Squared Prediction Error
+​    R[write to console]: Criterion: Mean Squared Prediction Error
 
 
 ​    
-    R[write to console]: Matrix completion method...
+​    R[write to console]: Matrix completion method...
 
 
 ​    
-    R[write to console]: 
-     lambda.norm = 1.00000; MSPE = 7.26193; MSPTATT = 0.28561; MSE = 5.80999
-    
+​    R[write to console]: 
+​     lambda.norm = 1.00000; MSPE = 7.26193; MSPTATT = 0.28561; MSE = 5.80999
+​    
     R[write to console]: 
      lambda.norm = 0.42170; MSPE = 5.67678; MSPTATT = 0.12218; MSE = 4.15356
     
@@ -474,8 +474,8 @@ out_mc.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id","time"],
 
 ​    
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -516,8 +516,8 @@ fpy.png_show(out_bal.plot_para)
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -598,28 +598,28 @@ out_mc_p.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id", "time"],
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: Parallel computing ...
+​    R[write to console]: Parallel computing ...
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: Parallel computing ...
+​    R[write to console]: Parallel computing ...
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -770,431 +770,431 @@ out_mc_loo.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id","time"],
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: 
-    Out-of-Sample Test...
+​    R[write to console]: 
+​    Out-of-Sample Test...
 
 
+​    
+​    R[write to console]: 
+
+
+​    
+​    R[write to console]: Pre-period 0 (one period before treatment)
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period 0 (one period before treatment)
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -1
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -1
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -2
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -2
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -3
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -3
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -4
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -4
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -5
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -5
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -6
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -6
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -7
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -7
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -8
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -8
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -9
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -9
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -10
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -10
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -11
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -11
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -12
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -12
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -13
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -13
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -14
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -14
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -15
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -15
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -16
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -16
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -17
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -17
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -18
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -18
-    
-    R[write to console]: 
+​    R[write to console]: Parallel computing ...
 
 
 ​    
-    R[write to console]: Parallel computing ...
-
-
+​    R[write to console]: Bootstrapping for uncertainties ... 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: 
-    Out-of-Sample Test...
+​    R[write to console]: 
+​    Out-of-Sample Test...
 
 
+​    
+​    R[write to console]: 
+
+
+​    
+​    R[write to console]: Pre-period 0 (one period before treatment)
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period 0 (one period before treatment)
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -1
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -1
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -2
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -2
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -3
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -3
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -4
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -4
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -5
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -5
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -6
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -6
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -7
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -7
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -8
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -8
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -9
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -9
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -10
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -10
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -11
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -11
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -12
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -12
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -13
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -13
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -14
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -14
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -15
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -15
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -16
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -16
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -17
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -17
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -18
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -18
-    
-    R[write to console]: 
+​    R[write to console]: Parallel computing ...
 
 
 ​    
-    R[write to console]: Parallel computing ...
+​    R[write to console]: Cross-validating ...
 
 
 ​    
-    R[write to console]: Cross-validating ...
+​    R[write to console]: Criterion: Mean Squared Prediction Error
 
 
 ​    
-    R[write to console]: Criterion: Mean Squared Prediction Error
+​    R[write to console]: Matrix completion method...
 
 
 ​    
-    R[write to console]: Matrix completion method...
-
-
+​    R[write to console]: 
+​     lambda.norm = 1.00000; MSPE = 6.80306; MSPTATT = 0.28561; MSE = 5.80999
 ​    
-    R[write to console]: 
-     lambda.norm = 1.00000; MSPE = 6.80306; MSPTATT = 0.28561; MSE = 5.80999
-    
     R[write to console]: 
      lambda.norm = 0.42170; MSPE = 5.27513; MSPTATT = 0.12218; MSE = 4.15356
     
@@ -1221,203 +1221,203 @@ out_mc_loo.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id","time"],
 
 ​    
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: 
-    Out-of-Sample Test...
+​    R[write to console]: 
+​    Out-of-Sample Test...
 
 
+​    
+​    R[write to console]: 
+
+
+​    
+​    R[write to console]: Pre-period 0 (one period before treatment)
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period 0 (one period before treatment)
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -1
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -1
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -2
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -2
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -3
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -3
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -4
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -4
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -5
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -5
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -6
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -6
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -7
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -7
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -8
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -8
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -9
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -9
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -10
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -10
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -11
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -11
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -12
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -12
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -13
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -13
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -14
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -14
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -15
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -15
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -16
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -16
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
+​    
+​    R[write to console]: Pre-period -17
 ​    
     R[write to console]: 
 
 
 ​    
-    R[write to console]: Pre-period -17
-    
-    R[write to console]: 
+​    R[write to console]: 
 
 
 ​    
-    R[write to console]: 
-
-
+​    R[write to console]: Pre-period -18
 ​    
-    R[write to console]: Pre-period -18
-    
     R[write to console]: 
 
 
@@ -1552,28 +1552,28 @@ out_mc_c.setFect("Y ~ D + X1 + X2", data = simdata, index = ["id", "time"],
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: Parallel computing ...
+​    R[write to console]: Parallel computing ...
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
 ​    
-    R[write to console]: Parallel computing ...
+​    R[write to console]: Parallel computing ...
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -1651,8 +1651,8 @@ fpy.png_show(out_ife_rm_test.plot_para)
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -1890,8 +1890,8 @@ fpy.png_show(out_cfe.plot_para)
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 
@@ -1923,8 +1923,8 @@ fpy.png_show(out_poly.plot_para)
 
 
 ​    
-    R[write to console]: Bootstrapping for uncertainties ... 
-    
+​    R[write to console]: Bootstrapping for uncertainties ... 
+​    
     R[write to console]: 200 runs
 
 

@@ -9,7 +9,6 @@ from setuptools import setup, find_packages
 import os, re, sys
 
 
-VERSION = '0.1.0'
 install_requires = [
     'numpy>=1.17',
       'pandas>=1.1.2',
@@ -21,14 +20,14 @@ install_requires = [
 
 here = os.path.abspath(os.path.dirname(__file__))
 _version = {}
-_version_path = os.path.join(here, 'fect_py', '__version__.py')
+_version_path = os.path.join(here, 'fect_python', '__version__.py')
 with open(_version_path, 'r', 'utf-8') as f:
     exec(f.read(), _version)
 
 setup(
-  name = 'fect_py',         
-  packages = ['fect_py'],   
-  version = VERSION,      
+  name = 'fect_python',         
+  packages = ['fect_python'],   
+  version = _version['__version__'],      
   license='MIT',        
   description = 'counterfactural estimation and general synthetic control (FEct)',   
   author = 'Yiqing Xu, Shijian Liu',                   
