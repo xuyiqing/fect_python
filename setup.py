@@ -21,7 +21,7 @@ install_requires = [
 here = os.path.abspath(os.path.dirname(__file__))
 _version = {}
 _version_path = os.path.join(here, 'fect_python', '__version__.py')
-with open(_version_path, 'r', 'utf-8') as f:
+with open(_version_path, 'r', encoding = 'utf-8') as f:
     exec(f.read(), _version)
 
 setup(
