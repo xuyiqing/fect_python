@@ -7,7 +7,7 @@ experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](h
 MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 <!-- badges: end -->
 
-**Python** version of fixed effects counterfactual estimators (**fect**) based on **rpy2**. This is a package for implementing counterfactual estimators in panel
+Python version of fixed effects counterfactual estimators (**fect**) based on **rpy2**. This is a package for implementing counterfactual estimators in panel
 fixed-effect settings. It is suitable for panel/TSCS analysis with
 binary treatments under (hypothetically) baseline randomization. It
 allows a treatment to switch on and off and limited carryover effects.
@@ -17,9 +17,8 @@ matrix completion method.
 
 **Repo:** [GitHub](https://github.com/xuyiqing/fect) (1.0.0)
 
-**Examples:** Python code used in the
-[tutorial](https://yiqingxu.org/packages/fect/articles/tutorial.html)
-can be downloaded from [here](https://github.com/xuyiqing/fect_python/blob/main/example/fect_ipy.ipynb). You can also find a markdown tutorial [here](https://github.com/xuyiqing/fect_python/blob/main/fect_python_totorial_md/README.md)
+**Examples:** The original R
+[tutorial](https://yiqingxu.org/packages/fect/articles/tutorial.html) can be replicated in Python with [this](https://github.com/xuyiqing/fect_python/blob/main/example/fect_ipy.ipynb) tutorial. You can also find a markdown version tutorial [here](https://github.com/xuyiqing/fect_python/blob/main/fect_python_totorial_md/README.md)
 
 **Reference:** Licheng Liu, Ye Wang, Yiqing Xu (2021). [A Practical
 Guide to Counterfactual Estimators for Causal Inference with Time-Series
