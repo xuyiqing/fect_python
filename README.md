@@ -7,7 +7,7 @@ experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](h
 MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 <!-- badges: end -->
 
-Python version of fixed effects counterfactual estimators (**fect**) based on **rpy2**. This is a package for implementing counterfactual estimators in panel
+Fixed effects counterfactual estimator (**fect**) based on **rpy2**. This is a package for implementing counterfactual estimators in panel
 fixed-effect settings. It is suitable for panel/TSCS analysis with
 binary treatments under (hypothetically) baseline randomization. It
 allows a treatment to switch on and off and limited carryover effects.
