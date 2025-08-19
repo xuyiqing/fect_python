@@ -158,10 +158,7 @@ def _check_and_prepare(
     return Y_mat, D_mat, I_mat, X_arr, id_vals.tolist(), time_vals.tolist(), X_cols
 
 
-# Native alternating-projections FE solver removed; FE estimation is implemented in effect._predict_counterfactual
-
-
-# Native masked OLS helper removed; standard errors are obtained from the chosen FE implementation
+# FE solver implemented in effect._predict_counterfactual
 
 
 def _predict_counterfactual(
@@ -218,6 +215,7 @@ def fect(
     nboots: int = 200,
     seed: Optional[int] = None,
     keep_sims: bool = False,
+    # parallel options removed
     **kwargs: Any,
 ) -> FectResult:
     if binary:
@@ -274,7 +272,11 @@ def fect(
     if se:
         try:
             est_att_df = _compute_event_study_se(
-                data, Y, D, X, index, vartype=vartype, nboots=int(nboots), seed=seed, min_T0=min_T0
+                data, Y, D, X, index,
+                vartype=vartype,
+                nboots=int(nboots),
+                seed=seed,
+                min_T0=min_T0,
             )
         except Exception:
             est_att_df = None
@@ -306,7 +308,19 @@ def fect(
         D_boot=None,
         I_boot=None,
         att_avg_boot=None,
-        call={"method": method, "binary": binary, "index": index, "Y": Y, "D": D, "X": X_cols, "seed": seed, "vartype": vartype, "nboots": nboots, "se": bool(se)},
+        call={
+            "method": method,
+            "binary": binary,
+            "index": index,
+            "Y": Y,
+            "D": D,
+            "X": X_cols,
+            "seed": seed,
+            "vartype": vartype,
+            "nboots": nboots,
+            "se": bool(se),
+            # parallel removed
+        },
         est_att_df=est_att_df,
         est_summary={
             "se_obs": (float(est_att_df.attrs.get("se_obs")) if est_att_df is not None and "se_obs" in est_att_df.attrs else float("nan")),

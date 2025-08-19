@@ -65,7 +65,11 @@ def format_summary(out) -> str:
         lo_unit, hi_unit, p_unit = ci_and_p(att_unit, se_unit_use if se_unit_use is not None else float('nan'))
 
     def fmt_num(x: float, digits: int = 3) -> str:
-        return (f"{x:.{digits}f}" if np.isfinite(x) else "")
+        try:
+            xv = float(x)
+        except Exception:
+            return ""
+        return (f"{xv:.{digits}f}" if np.isfinite(xv) else "")
 
     def fmt_p(p: float) -> str:
         if not np.isfinite(p):

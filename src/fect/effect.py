@@ -8,6 +8,9 @@ import pandas as pd
 from .fect import FectResult
 
 
+    # (parallel helpers removed)
+
+
 def _event_study_from_mats(
     Y: np.ndarray,
     D: np.ndarray,
@@ -312,10 +315,13 @@ def _compute_event_study_se(
     if p > 0:
         beta_mat = []
 
+    # (process-based helpers are defined at module top-level)
+
     if vartype.lower() in {"bootstrap", "boot"}:
         B = int(max(1, nboots))
-        rng = np.random.RandomState(seed if seed is not None else None)
-        for _ in range(B):
+        # Pure sequential path without any parallel overhead
+        rng = _np.random.RandomState(seed if seed is not None else None)
+        def _sample_indices_seq() -> _np.ndarray:
             tries = 0
             while True:
                 tries += 1
@@ -324,31 +330,34 @@ def _compute_event_study_se(
                         samp_rev = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
                         samp_tr = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)]
                         samp_co = idx_co_all[rng.randint(0, Nco, size=Nco)]
-                        samp = np.concatenate([samp_rev, samp_tr, samp_co])
+                        samp = _np.concatenate([samp_rev, samp_tr, samp_co])
                     elif Ntr > 0:
                         samp_rev = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
                         samp_tr = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)]
-                        samp = np.concatenate([samp_rev, samp_tr])
+                        samp = _np.concatenate([samp_rev, samp_tr])
                     elif Nco > 0:
                         samp_rev = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
                         samp_co = idx_co_all[rng.randint(0, Nco, size=Nco)]
-                        samp = np.concatenate([samp_rev, samp_co])
+                        samp = _np.concatenate([samp_rev, samp_co])
                     else:
                         samp = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
                 else:
                     if Nco > 0:
-                        samp_tr = idx_tr_pure[rng.randint(0, max(1, Ntr), size=Ntr)] if Ntr > 0 else np.array([], dtype=int)
+                        samp_tr = idx_tr_pure[rng.randint(0, max(1, Ntr), size=Ntr)] if Ntr > 0 else _np.array([], dtype=int)
                         samp_co = idx_co_all[rng.randint(0, Nco, size=Nco)]
-                        samp = np.concatenate([samp_tr, samp_co])
+                        samp = _np.concatenate([samp_tr, samp_co])
                     else:
-                        samp = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)] if Ntr > 0 else np.array([], dtype=int)
-
+                        samp = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)] if Ntr > 0 else _np.array([], dtype=int)
                 if samp.size == 0:
-                    break
+                    return samp
                 feas = (I_mat_all[:, samp].sum(axis=1) >= 1).all()
                 if feas or tries > 1000:
-                    break
-            tl, av, att_obs, att_unit, beta_vec = run_once(samp)
+                    return samp
+        for _ in range(B):
+            cols = _sample_indices_seq()
+            if cols.size == 0:
+                continue
+            tl, av, att_obs, att_unit, beta_vec = run_once(cols)
             if tl.size == 0 or (not _np.isfinite(att_obs)):
                 continue
             row = _np.full((Rlen,), _np.nan, dtype=float)
@@ -364,14 +373,14 @@ def _compute_event_study_se(
             if _np.isfinite(att_unit):
                 overall_unit_vals.append(att_unit)
             if beta_mat is not None:
-                if beta_vec is not None and beta_vec.size == p:
-                    beta_mat.append(beta_vec.astype(float))
+                if beta_vec is not None and (beta_vec.size if hasattr(beta_vec, 'size') else 0) == p:
+                    beta_mat.append(_np.asarray(beta_vec, dtype=float))
                 else:
                     beta_mat.append(_np.full((p,), _np.nan))
     elif vartype.lower() == "jackknife":
         B = N
         for j in range(N):
-            cols = np.array([i for i in range(N) if i != j], dtype=int)
+            cols = _np.array([i for i in range(N) if i != j], dtype=int)
             if cols.size == 0:
                 continue
             tl, av, att_obs, att_unit, beta_vec = run_once(cols)
@@ -380,7 +389,7 @@ def _compute_event_study_se(
                 pos = {int(p): i for i, p in enumerate(timeline_full.tolist())}
                 for p_, v in zip(tl.tolist(), av.tolist()):
                     ip = pos.get(int(p_))
-                    if ip is not None and np.isfinite(v):
+                    if ip is not None and _np.isfinite(v):
                         row[ip] = float(v)
             att_rows.append(row)
             if _np.isfinite(att_obs):
@@ -388,8 +397,8 @@ def _compute_event_study_se(
             if _np.isfinite(att_unit):
                 overall_unit_vals.append(att_unit)
             if beta_mat is not None:
-                if beta_vec is not None and beta_vec.size == p:
-                    beta_mat.append(beta_vec.astype(float))
+                if beta_vec is not None and (beta_vec.size if hasattr(beta_vec, 'size') else 0) == p:
+                    beta_mat.append(_np.asarray(beta_vec, dtype=float))
                 else:
                     beta_mat.append(_np.full((p,), _np.nan))
     else:
