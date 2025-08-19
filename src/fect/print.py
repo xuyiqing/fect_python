@@ -72,6 +72,34 @@ def format_summary(out) -> str:
             return ""
         return "0" if p < 1e-6 else f"{p:.3f}"
 
+    # If effect() was called and effect summaries exist, show them first (R behavior)
+    if getattr(out, "effect_est_avg", None) is not None:
+        lines.append("Overall cumulative effect:")
+        try:
+            import pandas as _pd
+            if isinstance(out.effect_est_avg, (list, tuple, np.ndarray)):
+                arr = np.asarray(out.effect_est_avg, dtype=float)
+                # Print as a simple vector-like row
+                lines.append("  " + " ".join([f"{v:.4f}" if np.isfinite(v) else "" for v in arr]))
+            else:
+                lines.append(f"  {out.effect_est_avg}")
+        except Exception:
+            lines.append(f"  {out.effect_est_avg}")
+        if getattr(out, "effect_est_att", None) is not None:
+            lines.append("")
+            lines.append("Period-by-period cumulative effect:")
+            try:
+                df = out.effect_est_att
+                if hasattr(df, "to_string"):
+                    s = df.to_string(index=False)
+                    for ln in s.splitlines():
+                        lines.append("  " + ln)
+                else:
+                    lines.append(str(df))
+            except Exception:
+                lines.append(str(out.effect_est_att))
+        return "\n".join(["#> " + ln if ln else "#>" for ln in lines])
+
     lines.append("ATT:")
     lines.append("")
     label_w = 28

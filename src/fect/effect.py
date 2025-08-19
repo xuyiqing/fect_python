@@ -539,6 +539,69 @@ def effect(
 
     catt = _get_effect(D, I, eff, cumu=cumu, period=period)
 
-    # Attach point estimates for compatibility
+    # Prepare event-time periods and counts to attach a per-period table
+    # Reconstruct relative event time labels and counts to align with R's effect()
+    import numpy as _np
+    import pandas as _pd
+    T, N = D.shape
+    D_cum2 = _np.cumsum(D, axis=0)
+    rel = _np.zeros_like(D_cum2)
+    for j in range(N):
+        t0 = int(_np.sum(D_cum2[:, j] == 0))
+        rel[:, j] = _np.arange(1, T + 1) - t0
+    rel = rel.astype(float)
+    rel[I == 0] = _np.nan
+
+    ts, te = period
+    te = min(te, int(_np.nanmax(rel)) if _np.isfinite(_np.nanmax(rel)) else te)
+    times = _np.arange(ts, te + 1, dtype=int)
+
+    # Count number of observations contributing to each event time
+    vd = rel.flatten()
+    veff = eff.flatten()
+    keep_mask = ~_np.isnan(vd)
+    vd = vd[keep_mask]
+    veff = veff[keep_mask]
+    counts = _np.zeros(len(times), dtype=int)
+    for i, t in enumerate(times):
+        counts[i] = int(_np.sum(vd == t))
+
+    # Attach point estimates and per-period table for compatibility with R
     x.effect_est_avg = catt
+    try:
+        x.effect_est_att = _pd.DataFrame({
+            "Period": times,
+            "Effect": catt,
+            "count": counts,
+        })
+    except Exception:
+        x.effect_est_att = None
+
+    # Optional quick plot (minimal), to emulate R's effect(plot=TRUE)
+    if plot:
+        try:
+            import matplotlib.pyplot as _plt
+            fig, ax = _plt.subplots(figsize=(7, 4))
+            ax.axhline(0, color="#AAAAAA70", linewidth=1.5)
+            ax.plot(times, catt, marker="o", color="#000000", linewidth=1.6)
+            if count and len(times) > 0 and _np.nanmax(counts) > 0:
+                ymin, ymax = ax.get_ylim()
+                height = (ymax - ymin) * 0.1
+                maxc = float(_np.nanmax(counts))
+                for xi, ci in zip(times, counts):
+                    if _np.isfinite(ci) and ci > 0:
+                        ax.add_patch(_plt.Rectangle((xi - 0.2, ymin), 0.4, height * (ci / maxc), color="gray", alpha=0.4, linewidth=0.2))
+            if xlab is not None:
+                ax.set_xlabel(str(xlab))
+            else:
+                ax.set_xlabel("Event Time")
+            if ylab is not None:
+                ax.set_ylabel(str(ylab))
+            else:
+                ax.set_ylabel("Effect")
+            ax.set_title(str(main) if main is not None else ("Cumulative Effect" if cumu else "Per-period Effect"))
+            fig.tight_layout()
+        except Exception:
+            pass
+
     return x
