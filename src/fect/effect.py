@@ -161,43 +161,71 @@ def _predict_counterfactual(
         Y0 = mu + alpha[None, :] + xi[:, None]
         return Y0, II, None, None
 
-    # With covariates: use linearmodels to estimate beta quickly without dense dummies
-    try:
-        from linearmodels.panel import PanelOLS  # type: ignore
-    except Exception as e:  # pragma: no cover - dependency missing
-        raise RuntimeError("linearmodels is required for fast FE estimation with covariates. Please `pip install linearmodels`.") from e
+    # With covariates: fast within transformation + small OLS (no pandas, no dense dummies)
+    def _within_tilde(mat: np.ndarray, wm: np.ndarray, mode: str) -> np.ndarray:
+        m, a, x = _recover_additive_fe(mat, wm, mode)
+        return mat - (m + a[None, :] + x[:, None])
 
-    # Build panel DataFrame for masked (control) observations
-    t_index = np.repeat(np.arange(T), N)
-    i_index = np.tile(np.arange(N), T)
-    mask_vec = (II.ravel() > 0)
+    # Initialize
+    beta = np.zeros(p, dtype=float)
+    max_iter = 15
+    tol = 1e-8
+    mask_vec = (II > 0)
 
-    y_s = Y.ravel()[mask_vec]
-    idx = pd.MultiIndex.from_arrays([i_index[mask_vec], t_index[mask_vec]], names=["entity", "time"])  # entity-time order OK
-    y_df = pd.Series(y_s, index=idx, name="y")
+    for _ in range(max_iter):
+        # Residual after removing covariate contribution
+        covar_fit_iter = np.zeros((T, N), dtype=float)
+        for k in range(p):
+            covar_fit_iter += X[:, :, k] * beta[k]
+        resid = Y - covar_fit_iter
 
-    X_dict = {}
-    for k in range(p):
-        X_dict[f"x{k}"] = X[:, :, k].ravel()[mask_vec]
-    X_df = pd.DataFrame(X_dict, index=idx)
+        # Update FE by demeaning residuals on controls
+        mu, alpha, xi = _recover_additive_fe(resid, II, fe_mode)
+        y_tilde = resid - (mu + alpha[None, :] + xi[:, None])
 
-    model = PanelOLS(y_df, X_df, entity_effects=(fe_mode in ("unit", "two-way")), time_effects=(fe_mode in ("time", "two-way")))
-    res = model.fit()
-    beta = res.params.to_numpy(dtype=float)
-    beta_se = None
-    try:
-        beta_se = res.std_errors.to_numpy(dtype=float)
-    except Exception:
-        beta_se = None
+        # Build small normal equations X'X and X'y using demeaned X on controls
+        Xty = np.zeros(p, dtype=float)
+        XtX = np.zeros((p, p), dtype=float)
+        y_vec = y_tilde[mask_vec]
+        # Precompute demeaned X columns lazily to save memory
+        X_tilde_cols = []
+        for k in range(p):
+            Xk_tilde = _within_tilde(X[:, :, k], II, fe_mode)
+            xk_vec = Xk_tilde[mask_vec]
+            X_tilde_cols.append(xk_vec)
+            Xty[k] = float(np.dot(xk_vec, y_vec))
+        # Fill XtX (symmetric)
+        for i in range(p):
+            xi_c = X_tilde_cols[i]
+            for j in range(i, p):
+                xj_c = X_tilde_cols[j]
+                v = float(np.dot(xi_c, xj_c))
+                XtX[i, j] = v
+                XtX[j, i] = v
+        # Ridge to stabilize if near-singular
+        lam = 1e-12
+        for d in range(p):
+            XtX[d, d] += lam
+        try:
+            new_beta = np.linalg.solve(XtX, Xty)
+        except np.linalg.LinAlgError:
+            new_beta, *_ = np.linalg.lstsq(XtX, Xty, rcond=None)
 
-    # Remove covariate contribution then recover FE parts from controls via fast demeaning
+        if np.all(np.isfinite(new_beta)):
+            if np.linalg.norm(new_beta - beta, ord=np.inf) < tol:
+                beta = new_beta
+                break
+            beta = new_beta
+        else:
+            break
+
+    # Final FE using final beta
     covar_fit = np.zeros((T, N), dtype=float)
     for k in range(p):
         covar_fit += X[:, :, k] * beta[k]
-    resid_for_fe = Y - covar_fit
-    mu, alpha, xi = _recover_additive_fe(resid_for_fe, II, fe_mode)
-
+    mu, alpha, xi = _recover_additive_fe(Y - covar_fit, II, fe_mode)
     Y0 = mu + alpha[None, :] + xi[:, None] + covar_fit
+    beta_se = None  # not computed in fast path
     return Y0, II, beta, beta_se
 
 
