@@ -158,68 +158,10 @@ def _check_and_prepare(
     return Y_mat, D_mat, I_mat, X_arr, id_vals.tolist(), time_vals.tolist(), X_cols
 
 
-def _twoway_demean(Y: np.ndarray, I: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-    # Compute two-way FE via alternating projections with missing mask I.
-    # Returns: residuals E = Y - alpha - xi - mu, unit FE alpha, time FE xi, intercept mu
-    T, N = Y.shape
-    mask = I > 0
-
-    # Initialize
-    alpha = np.zeros(N)
-    xi = np.zeros(T)
-    mu = 0.0
-
-    for _ in range(200):
-        # Update alpha (unit FE)
-        denom_u = mask.sum(axis=0).astype(float)
-        resid_u = Y - xi[:, None] - mu
-        num_u = (resid_u * mask).sum(axis=0)
-        with np.errstate(invalid="ignore", divide='ignore'):
-            alpha_new = np.where(denom_u > 0, num_u / denom_u, alpha)
-
-        # Update xi (time FE)
-        denom_t = mask.sum(axis=1).astype(float)
-        resid_t = Y - alpha_new[None, :] - mu
-        num_t = (resid_t * mask).sum(axis=1)
-        with np.errstate(invalid="ignore", divide='ignore'):
-            xi_new = np.where(denom_t > 0, num_t / denom_t, xi)
-
-        # Update mu (intercept)
-        resid_mu = Y - alpha_new[None, :] - xi_new[:, None]
-        mu_new = resid_mu[mask].mean() if mask.any() else 0.0
-
-        if (
-            np.max(np.abs(alpha_new - alpha)) < 1e-8
-            and np.max(np.abs(xi_new - xi)) < 1e-8
-            and abs(mu_new - mu) < 1e-8
-        ):
-            alpha, xi, mu = alpha_new, xi_new, mu_new
-            break
-        alpha, xi, mu = alpha_new, xi_new, mu_new
-
-    E = Y - (alpha[None, :] + xi[:, None] + mu)
-    E = np.where(mask, E, 0.0)
-    return E, alpha, xi, mu
+# Native alternating-projections FE solver removed; FE estimation is implemented in effect._predict_counterfactual
 
 
-def _ols_with_mask(Xm: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
-    # Solve beta = (X'X)^{-1} X'y, with simple homoskedastic se
-    XtX = Xm.T @ Xm
-    Xty = Xm.T @ y
-    try:
-        beta = np.linalg.solve(XtX, Xty)
-    except np.linalg.LinAlgError:
-        beta = np.linalg.lstsq(Xm, y, rcond=None)[0]
-        XtX = Xm.T @ Xm
-    resid = y - Xm @ beta
-    dof = max(1, Xm.shape[0] - Xm.shape[1])
-    sigma2 = float((resid @ resid) / dof) if dof > 0 else 0.0
-    try:
-        cov = sigma2 * np.linalg.inv(XtX)
-        se = np.sqrt(np.maximum(0.0, np.diag(cov)))
-    except np.linalg.LinAlgError:
-        se = np.full(beta.shape, np.nan)
-    return beta, se, sigma2
+# Native masked OLS helper removed; standard errors are obtained from the chosen FE implementation
 
 
 def _predict_counterfactual(
@@ -229,58 +171,9 @@ def _predict_counterfactual(
     X: np.ndarray,
     force: str,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    # Fit two-way FE with optional covariates X using only control observations (II mask)
-    T, N = Y.shape
-    p = X.shape[2] if X is not None and X.size > 0 else 0
-
-    II = I.copy()
-    II[D > 0] = 0.0
-
-    beta = np.zeros(p, dtype=float) if p > 0 else None
-    beta_se = np.zeros(p, dtype=float) if p > 0 else None
-
-    # Alternating estimation: FE given beta, then beta given FE
-    max_iter = 50
-    tol = 1e-8
-    for _ in range(max_iter):
-        # Step 1: FE given beta
-        if p > 0 and beta is not None:
-            XY = np.zeros_like(Y)
-            for k in range(p):
-                XY += X[:, :, k] * beta[k]
-            Y_res = Y - XY
-        else:
-            Y_res = Y
-
-        E, alpha, xi, mu = _twoway_demean(Y_res, II)
-
-        # Step 2: beta given FE on controls
-        if p == 0:
-            break
-        # build masked regression
-        mask = II > 0
-        y_vec = (Y - (alpha[None, :] + xi[:, None] + mu))[mask]
-        Xm = np.zeros((y_vec.shape[0], p), dtype=float)
-        for k in range(p):
-            Xm[:, k] = X[:, :, k][mask]
-        beta_new, beta_se_new, _ = _ols_with_mask(Xm, y_vec)
-        if np.allclose(beta_new, beta, atol=tol, rtol=0):
-            beta = beta_new
-            beta_se = beta_se_new
-            break
-        beta = beta_new
-        beta_se = beta_se_new
-
-    # Construct counterfactual
-    if p > 0 and beta is not None:
-        XY = np.zeros_like(Y)
-        for k in range(p):
-            XY += X[:, :, k] * beta[k]
-        Y0 = alpha[None, :] + xi[:, None] + mu + XY
-    else:
-        Y0 = alpha[None, :] + xi[:, None] + mu
-
-    return Y0, II, beta, beta_se
+    # Delegate to FE implementation in effect.py
+    from .effect import _predict_counterfactual as __predict
+    return __predict(Y, D, I, X, force)
 def _event_study_from_mats(
     Y: np.ndarray,
     D: np.ndarray,

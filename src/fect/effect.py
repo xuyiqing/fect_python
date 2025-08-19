@@ -83,6 +83,100 @@ def _att_from_diff(Y: np.ndarray, Y0: np.ndarray, D: np.ndarray, I: np.ndarray) 
     return eff, df
 
 
+def _predict_counterfactual(
+    Y: np.ndarray,
+    D: np.ndarray,
+    I: np.ndarray,
+    X: np.ndarray,
+    force: str,
+):
+    """Two-way FE on control-only observations; returns Y0, II, beta, beta_se.
+
+    Uses dummy-encoding for unit and time (drop one category each) and an intercept.
+    """
+    T, N = Y.shape
+    p = X.shape[2] if X is not None and X.size > 0 else 0
+
+    # mask treated as not usable for fitting
+    II = I.copy()
+    II[D > 0] = 0.0
+
+    import statsmodels.api as sm  # type: ignore
+
+    t_index = np.repeat(np.arange(T), N)
+    i_index = np.tile(np.arange(N), T)
+    mask_vec = (II.ravel() > 0)
+
+    y_vec = Y.ravel()[mask_vec]
+
+    # Covariates on masked rows
+    X_cols = []
+    if p > 0:
+        for k in range(p):
+            X_cols.append(X[:, :, k].ravel()[mask_vec])
+
+    # Unit dummies (drop baseline 0)
+    M = int(mask_vec.sum())
+    E = np.zeros((M, max(N - 1, 0)), dtype=float)
+    if N > 1:
+        i_m = i_index[mask_vec]
+        rows = np.arange(M)
+        nz = i_m > 0
+        if nz.any():
+            E[rows[nz], i_m[nz] - 1] = 1.0
+
+    # Time dummies (drop baseline 0)
+    Tm = np.zeros((M, max(T - 1, 0)), dtype=float)
+    if T > 1:
+        t_m = t_index[mask_vec]
+        rows = np.arange(M)
+        nz = t_m > 0
+        if nz.any():
+            Tm[rows[nz], t_m[nz] - 1] = 1.0
+
+    parts = [np.ones((M, 1), dtype=float)]
+    if E.shape[1] > 0:
+        parts.append(E)
+    if Tm.shape[1] > 0:
+        parts.append(Tm)
+    if len(X_cols) > 0:
+        parts.append(np.column_stack(X_cols))
+    exog = np.column_stack(parts)
+
+    model = sm.OLS(y_vec, exog, hasconst=True)
+    res = model.fit()
+    params = res.params
+    bse = res.bse if hasattr(res, "bse") else None
+
+    # Unpack parameters
+    idx = 0
+    mu = float(params[idx]); idx += 1
+    alpha = np.zeros(N, dtype=float)
+    if N > 1:
+        alpha[1:] = params[idx: idx + (N - 1)]
+        idx += (N - 1)
+    xi = np.zeros(T, dtype=float)
+    if T > 1:
+        xi[1:] = params[idx: idx + (T - 1)]
+        idx += (T - 1)
+    beta = None
+    beta_se = None
+    if p > 0:
+        beta = np.array(params[idx: idx + p], dtype=float)
+        if bse is not None:
+            beta_se = np.array(bse[idx: idx + p], dtype=float)
+
+    # Construct counterfactual
+    Y0 = (alpha[None, :] + xi[:, None] + mu)
+    if p > 0 and beta is not None:
+        XY = np.zeros_like(Y0)
+        for k in range(p):
+            XY += X[:, :, k] * beta[k]
+        Y0 = Y0 + XY
+
+    return Y0, II, beta, beta_se
+
+
 def _compute_event_study_se(
     data: pd.DataFrame,
     Y: str,
@@ -97,7 +191,7 @@ def _compute_event_study_se(
     import numpy as _np
     import pandas as _pd
     # local imports to avoid circular during module import
-    from .fect import _check_and_prepare, _predict_counterfactual
+    from .fect import _check_and_prepare
 
     Y_mat_all, D_mat_all, I_mat_all, X_arr_all, id_vals, time_vals, X_cols = _check_and_prepare(data, Y, D, X, index)
     II_all = I_mat_all.copy()
