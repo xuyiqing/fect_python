@@ -90,9 +90,9 @@ def _predict_counterfactual(
     X: np.ndarray,
     force: str,
 ):
-    """Two-way FE on control-only observations; returns Y0, II, beta, beta_se.
+    """FE on control-only observations using linearmodels.PanelOLS (no dense dummies).
 
-    Uses dummy-encoding for unit and time (drop one category each) and an intercept.
+    Returns Y0 (T x N), II (mask of control-only rows used in fitting), beta (p,), beta_se (p,).
     """
     T, N = Y.shape
     p = X.shape[2] if X is not None and X.size > 0 else 0
@@ -101,79 +101,103 @@ def _predict_counterfactual(
     II = I.copy()
     II[D > 0] = 0.0
 
-    import statsmodels.api as sm  # type: ignore
+    # Helper: fast two-way demeaning to recover FE parts on possibly unbalanced mask
+    def _recover_additive_fe(resid_mat: np.ndarray, weight_mat: np.ndarray, fe_mode: str) -> tuple[float, np.ndarray, np.ndarray]:
+        wm = (weight_mat > 0).astype(float)
+        total_w = wm.sum()
+        if total_w == 0:
+            return 0.0, np.zeros(N, float), np.zeros(T, float)
+        mu_local = float((resid_mat * wm).sum() / total_w)
+        alpha_local = np.zeros(N, float)
+        xi_local = np.zeros(T, float)
 
+        if fe_mode == "none":
+            return mu_local, alpha_local, xi_local
+        if fe_mode == "unit":
+            # alpha_i = mean_t (resid - mu)
+            denom = wm.sum(axis=0)
+            denom[denom == 0] = 1.0
+            alpha_local = ((resid_mat - mu_local) * wm).sum(axis=0) / denom
+            return mu_local, alpha_local, xi_local
+        if fe_mode == "time":
+            denom = wm.sum(axis=1)
+            denom[denom == 0] = 1.0
+            xi_local = ((resid_mat - mu_local) * wm).sum(axis=1) / denom
+            return mu_local, alpha_local, xi_local
+
+        # two-way: alternating projections
+        max_iter = 50
+        tol = 1e-10
+        for _ in range(max_iter):
+            prev_alpha = alpha_local.copy()
+            prev_xi = xi_local.copy()
+            # update alpha
+            denom_a = wm.sum(axis=0)
+            denom_a[denom_a == 0] = 1.0
+            alpha_local = ((resid_mat - mu_local - xi_local[:, None]) * wm).sum(axis=0) / denom_a
+            # center alpha to satisfy identifiability approximately
+            alpha_local -= alpha_local.mean()
+            # update xi
+            denom_x = wm.sum(axis=1)
+            denom_x[denom_x == 0] = 1.0
+            xi_local = ((resid_mat - mu_local - alpha_local[None, :]) * wm).sum(axis=1) / denom_x
+            xi_local -= xi_local.mean()
+            # small mu adjustment
+            mu_local = float(((resid_mat - alpha_local[None, :] - xi_local[:, None]) * wm).sum() / total_w)
+            if np.max(np.abs(alpha_local - prev_alpha)) < tol and np.max(np.abs(xi_local - prev_xi)) < tol:
+                break
+        return mu_local, alpha_local, xi_local
+
+    # If no covariates, just recover FE parts from Y on controls
+    fe_mode = {
+        "none": "none",
+        "unit": "unit",
+        "time": "time",
+        "two-way": "two-way",
+    }.get(force, "two-way")
+
+    if p == 0:
+        mu, alpha, xi = _recover_additive_fe(Y, II, fe_mode)
+        Y0 = mu + alpha[None, :] + xi[:, None]
+        return Y0, II, None, None
+
+    # With covariates: use linearmodels to estimate beta quickly without dense dummies
+    try:
+        from linearmodels.panel import PanelOLS  # type: ignore
+    except Exception as e:  # pragma: no cover - dependency missing
+        raise RuntimeError("linearmodels is required for fast FE estimation with covariates. Please `pip install linearmodels`.") from e
+
+    # Build panel DataFrame for masked (control) observations
     t_index = np.repeat(np.arange(T), N)
     i_index = np.tile(np.arange(N), T)
     mask_vec = (II.ravel() > 0)
 
-    y_vec = Y.ravel()[mask_vec]
+    y_s = Y.ravel()[mask_vec]
+    idx = pd.MultiIndex.from_arrays([i_index[mask_vec], t_index[mask_vec]], names=["entity", "time"])  # entity-time order OK
+    y_df = pd.Series(y_s, index=idx, name="y")
 
-    # Covariates on masked rows
-    X_cols = []
-    if p > 0:
-        for k in range(p):
-            X_cols.append(X[:, :, k].ravel()[mask_vec])
+    X_dict = {}
+    for k in range(p):
+        X_dict[f"x{k}"] = X[:, :, k].ravel()[mask_vec]
+    X_df = pd.DataFrame(X_dict, index=idx)
 
-    # Unit dummies (drop baseline 0)
-    M = int(mask_vec.sum())
-    E = np.zeros((M, max(N - 1, 0)), dtype=float)
-    if N > 1:
-        i_m = i_index[mask_vec]
-        rows = np.arange(M)
-        nz = i_m > 0
-        if nz.any():
-            E[rows[nz], i_m[nz] - 1] = 1.0
-
-    # Time dummies (drop baseline 0)
-    Tm = np.zeros((M, max(T - 1, 0)), dtype=float)
-    if T > 1:
-        t_m = t_index[mask_vec]
-        rows = np.arange(M)
-        nz = t_m > 0
-        if nz.any():
-            Tm[rows[nz], t_m[nz] - 1] = 1.0
-
-    parts = [np.ones((M, 1), dtype=float)]
-    if E.shape[1] > 0:
-        parts.append(E)
-    if Tm.shape[1] > 0:
-        parts.append(Tm)
-    if len(X_cols) > 0:
-        parts.append(np.column_stack(X_cols))
-    exog = np.column_stack(parts)
-
-    model = sm.OLS(y_vec, exog, hasconst=True)
+    model = PanelOLS(y_df, X_df, entity_effects=(fe_mode in ("unit", "two-way")), time_effects=(fe_mode in ("time", "two-way")))
     res = model.fit()
-    params = res.params
-    bse = res.bse if hasattr(res, "bse") else None
-
-    # Unpack parameters
-    idx = 0
-    mu = float(params[idx]); idx += 1
-    alpha = np.zeros(N, dtype=float)
-    if N > 1:
-        alpha[1:] = params[idx: idx + (N - 1)]
-        idx += (N - 1)
-    xi = np.zeros(T, dtype=float)
-    if T > 1:
-        xi[1:] = params[idx: idx + (T - 1)]
-        idx += (T - 1)
-    beta = None
+    beta = res.params.to_numpy(dtype=float)
     beta_se = None
-    if p > 0:
-        beta = np.array(params[idx: idx + p], dtype=float)
-        if bse is not None:
-            beta_se = np.array(bse[idx: idx + p], dtype=float)
+    try:
+        beta_se = res.std_errors.to_numpy(dtype=float)
+    except Exception:
+        beta_se = None
 
-    # Construct counterfactual
-    Y0 = (alpha[None, :] + xi[:, None] + mu)
-    if p > 0 and beta is not None:
-        XY = np.zeros_like(Y0)
-        for k in range(p):
-            XY += X[:, :, k] * beta[k]
-        Y0 = Y0 + XY
+    # Remove covariate contribution then recover FE parts from controls via fast demeaning
+    covar_fit = np.zeros((T, N), dtype=float)
+    for k in range(p):
+        covar_fit += X[:, :, k] * beta[k]
+    resid_for_fe = Y - covar_fit
+    mu, alpha, xi = _recover_additive_fe(resid_for_fe, II, fe_mode)
 
+    Y0 = mu + alpha[None, :] + xi[:, None] + covar_fit
     return Y0, II, beta, beta_se
 
 
