@@ -188,9 +188,16 @@ def _predict_counterfactual(
     I: np.ndarray,
     X: np.ndarray,
     force: str,
+    method: str = "fe",
+    r: int = 0,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
     from . import _fe as _fe_ext  # required C++ extension
-    Y0, II, beta, _ = _fe_ext.fe_predict_cf(Y, D, I, X, force)
+    
+    if method == "ife" and r > 0:
+        Y0, II, beta, _ = _fe_ext.ife_predict_cf(Y, D, I, X, force, r)
+    else:
+        Y0, II, beta, _ = _fe_ext.fe_predict_cf(Y, D, I, X, force)
+        
     Y0 = np.asarray(Y0, dtype=float)
     II = np.asarray(II, dtype=float)
     beta = (np.asarray(beta, dtype=float) if beta is not None and beta.size > 0 else None)
@@ -213,6 +220,8 @@ def _compute_event_study_se(
     index: Tuple[str, str],
     vartype: str,
     nboots: int,
+    method: str = "fe",
+    r: int = 0,
     seed: Optional[int] = None,
     min_T0: int = 5,
 ) -> pd.DataFrame:
@@ -259,25 +268,34 @@ def _compute_event_study_se(
         Im = I_mat_all[:, col_indices]
         Xa = X_arr_all[:, col_indices, :] if X_arr_all is not None and X_arr_all.size > 0 else _np.zeros((T, len(col_indices), 0))
 
-        Y0, _, beta_rep, _ = _predict_counterfactual(Ym, Dm, Im, Xa, "two-way")
+        Y0, _, beta_rep, _ = _predict_counterfactual(Ym, Dm, Im, Xa, "two-way", method, r)
         timeline, att_vec, _ = _event_study_from_mats(Ym, Dm, Im, Y0)
         eff_rep, _ = _att_from_diff(Ym, Y0, Dm, Im)
         v = eff_rep[~_np.isnan(eff_rep)]
         att_obs = float(_np.nanmean(v)) if v.size else float("nan")
-        unit_means: List[float] = []
+        # R's method: att.unit <- sapply(tr.pos, function(vec) sum(eff[,vec] * D[,vec]) / sum(D[,vec]))
+        # Then att.avg.unit <- mean(att.unit, na.rm = TRUE)
+        unit_atts: List[float] = []
         for j in range(eff_rep.shape[1]):
-            col = eff_rep[:, j]
-            if _np.all(_np.isnan(col)):
-                continue
-            m = _np.nanmean(col)
-            if _np.isfinite(m):
-                unit_means.append(float(m))
-        att_unit = float(_np.nanmean(unit_means)) if unit_means else float("nan")
+            # Check if this unit has any treatment
+            d_col = Dm[:, j] if j < Dm.shape[1] else _np.zeros(eff_rep.shape[0])
+            if _np.sum(d_col) > 0:  # This is a treated unit
+                eff_col = eff_rep[:, j]
+                # Weighted ATT for this unit: sum(eff * D) / sum(D)
+                valid_mask = ~_np.isnan(eff_col) & (d_col > 0)
+                if _np.sum(valid_mask) > 0:
+                    weighted_sum = _np.sum(eff_col[valid_mask] * d_col[valid_mask])
+                    weight_sum = _np.sum(d_col[valid_mask])
+                    if weight_sum > 0:
+                        unit_att = weighted_sum / weight_sum
+                        if _np.isfinite(unit_att):
+                            unit_atts.append(float(unit_att))
+        att_unit = float(_np.mean(unit_atts)) if unit_atts else float("nan")
         return timeline, att_vec, att_obs, att_unit, (beta_rep.copy() if beta_rep is not None else None)
 
     overall_obs_vals: List[float] = []
     overall_unit_vals: List[float] = []
-    Y0_full_pre, _, _, _ = _predict_counterfactual(Y_mat_all, D_mat_all, I_mat_all, X_arr_all, "two-way")
+    Y0_full_pre, _, _, _ = _predict_counterfactual(Y_mat_all, D_mat_all, I_mat_all, X_arr_all, "two-way", method, r)
     timeline_full, att_full_pre, counts_full = _event_study_from_mats(Y_mat_all, D_mat_all, I_mat_all, Y0_full_pre)
     Rlen = int(len(timeline_full))
     att_rows: List[np.ndarray] = []
@@ -382,7 +400,8 @@ def _compute_event_study_se(
         sumsq = _np.nansum((AttMat - means) ** 2, axis=0)
         mask_cols = valid_counts > 1.0
         if vartype.lower() == "jackknife":
-            se_vec[mask_cols] = _np.sqrt(((valid_counts[mask_cols] - 1.0) / valid_counts[mask_cols]) * sumsq[mask_cols])
+            # R's jackknife formula: sd * sqrt(N-1)
+            se_vec[mask_cols] = _np.sqrt(sumsq[mask_cols] / (valid_counts[mask_cols] - 1.0)) * _np.sqrt(valid_counts[mask_cols] - 1.0)
         else:
             se_vec[mask_cols] = _np.sqrt(sumsq[mask_cols] / (valid_counts[mask_cols] - 1.0))
     df_se = pd.DataFrame({"Period": timeline_full.astype(int), "SE": se_vec})
@@ -400,17 +419,64 @@ def _compute_event_study_se(
     out_df["CI.upper"] = out_df["ATT"] + Z97 * out_df["SE"]
 
     # overall SE summaries (obs-weighted and unit-weighted)
-    def _se_from_reps(values: List[float], method: str) -> float:
+    def _se_from_reps(values: List[float], method: str, point_estimate: float = None) -> float:
         if len(values) <= 1:
             return float("nan")
         arr = np.array(values, dtype=float)
         if method == "jackknife":
+            # R's jackknife formula from jackknifed() function:
+            # The key insight: R uses the ORIGINAL point estimate, not the mean of jackknife samples
+            # jackknifed(att.avg, att.avg.boot, alpha)
+            # where att.avg is the original estimate, att.avg.boot are jackknife samples
+            
+            # Use the original point estimate if provided, otherwise use mean of samples
+            if point_estimate is not None:
+                x_hat = float(point_estimate)
+            else:
+                x_hat = float(np.nanmean(arr))
+            
             n = float(arr.size)
-            meanv = float(np.mean(arr))
-            return float(np.sqrt((n - 1.0) / n * np.sum((arr - meanv) ** 2)))
+            
+            # R's exact formula:
+            # X <- matrix(rep(c(x), N), p, N) * N  (here p=1, so just x*N)
+            # Y <- X - y * (N - 1)
+            X = x_hat * n
+            Y = X - arr * (n - 1.0)
+            
+            # Calculate variance (R uses var with na.rm=TRUE)
+            valid_Y = Y[np.isfinite(Y)]
+            if len(valid_Y) <= 1:
+                return float("nan")
+            
+            Y_var = np.var(valid_Y, ddof=1)  # R's var() uses ddof=1
+            vn = float(len(valid_Y))  # Effective sample size
+            
+            # Jackknife SE
+            return float(np.sqrt(Y_var / vn))
         else:
             return float(np.std(arr, ddof=1))
 
+    # Calculate original point estimates for jackknife
+    eff_full, _ = _att_from_diff(Y_mat_all, Y0_full_pre, D_mat_all, I_mat_all)
+    v_full = eff_full[~_np.isnan(eff_full)]
+    att_obs_orig = float(_np.nanmean(v_full)) if v_full.size else float("nan")
+    
+    # Calculate original unit-weighted ATT
+    unit_atts_orig = []
+    for j in range(eff_full.shape[1]):
+        d_col = D_mat_all[:, j]
+        if _np.sum(d_col) > 0:
+            eff_col = eff_full[:, j]
+            valid_mask = ~_np.isnan(eff_col) & (d_col > 0)
+            if _np.sum(valid_mask) > 0:
+                weighted_sum = _np.sum(eff_col[valid_mask] * d_col[valid_mask])
+                weight_sum = _np.sum(d_col[valid_mask])
+                if weight_sum > 0:
+                    unit_att = weighted_sum / weight_sum
+                    if _np.isfinite(unit_att):
+                        unit_atts_orig.append(float(unit_att))
+    att_unit_orig = float(_np.mean(unit_atts_orig)) if unit_atts_orig else float("nan")
+    
     se_obs = _se_from_reps(overall_obs_vals, vartype.lower())
     se_unit = _se_from_reps(overall_unit_vals, vartype.lower())
     out_df.attrs["se_obs"] = se_obs
@@ -426,6 +492,7 @@ def _compute_event_study_se(
             mask_b = valid_counts_b > 1.0
             se_beta = _np.full((Bmat.shape[1],), _np.nan, dtype=float)
             if vartype.lower() == "jackknife":
+                # Original jackknife formula that was working before
                 se_beta[mask_b] = _np.sqrt(((valid_counts_b[mask_b] - 1.0) / valid_counts_b[mask_b]) * sumsq[mask_b])
             else:
                 se_beta[mask_b] = _np.sqrt(sumsq[mask_b] / (valid_counts_b[mask_b] - 1.0))
@@ -457,13 +524,14 @@ def fect(
     nboots: int = 200,
     seed: Optional[int] = None,
     keep_sims: bool = False,
+    r: int = 0,  # number of factors for IFE method
     # parallel options removed
     **kwargs: Any,
 ) -> FectResult:
     if binary:
         raise NotImplementedError("binary=True not yet supported in Python port.")
     if method not in {"fe", "ife"}:
-        raise NotImplementedError("Only method='fe' (r=0) is supported in this version.")
+        raise NotImplementedError("Only method='fe' and method='ife' are supported.")
 
     Y_mat, D_mat, I_mat, X_arr, id_vals, time_vals, X_cols = _check_and_prepare(
         data, Y, D, X, index
@@ -477,13 +545,18 @@ def fect(
     # 1) Mask treated as missing for fitting
     II = I_mat.copy()
     II[D_mat > 0] = 0.0
+    
+    # 2) Create YY with treated observations set to 0 (key R step!)
+    YY = Y_mat.copy()
+    YY[II == 0] = 0.0
 
-    # 2) Drop units with too few untreated observations (min_T0 default 5 per docs)
+    # 3) Drop units with too few untreated observations (min_T0 default 5 per docs)
     min_T0 = int(kwargs.get("min_T0", 5) or 5)
     T0 = II.sum(axis=0)
     keep_units = T0 >= min_T0
     if not np.all(keep_units):
         Y_mat = Y_mat[:, keep_units]
+        YY = YY[:, keep_units]
         D_mat = D_mat[:, keep_units]
         I_mat = I_mat[:, keep_units]
         II = II[:, keep_units]
@@ -491,11 +564,12 @@ def fect(
             X_arr = X_arr[:, keep_units, :]
         id_vals = [v for v, k in zip(id_vals, keep_units) if k]
 
-    # 3) Drop periods with no controls (no untreated obs in II)
+    # 4) Drop periods with no controls (no untreated obs in II)
     I_use = II.sum(axis=1)
     keep_times = I_use > 0
     if not np.all(keep_times):
         Y_mat = Y_mat[keep_times, :]
+        YY = YY[keep_times, :]
         D_mat = D_mat[keep_times, :]
         I_mat = I_mat[keep_times, :]
         II = II[keep_times, :]
@@ -503,8 +577,17 @@ def fect(
             X_arr = X_arr[keep_times, :, :]
         time_vals = [v for v, k in zip(time_vals, keep_times) if k]
 
-    # Fit counterfactual using two-way FE on untreated observations after filtering
-    Y0, II, beta, beta_se = _predict_counterfactual(Y_mat, D_mat, I_mat, X_arr, force)
+    # Determine r for IFE method
+    if method == "ife" and r <= 0:
+        # Default r=1 for IFE method
+        r = 1
+    elif method == "fe":
+        r = 0
+    
+    # Fit counterfactual using FE or IFE method on untreated observations after filtering
+    # Use YY (with treated obs set to 0) instead of Y_mat for IFE
+    Y_input = YY if method == "ife" else Y_mat
+    Y0, II, beta, beta_se = _predict_counterfactual(Y_input, D_mat, I_mat, X_arr, force, method, r)
 
     # Effects
     eff, eff_calendar = _att_from_diff(Y_mat, Y0, D_mat, I_mat)
@@ -517,6 +600,8 @@ def fect(
                 data, Y, D, X, index,
                 vartype=vartype,
                 nboots=int(nboots),
+                method=method,
+                r=r,
                 seed=seed,
                 min_T0=min_T0,
             )
@@ -540,7 +625,7 @@ def fect(
         eff=eff,
         eff_calendar=eff_calendar,
         hasRevs=bool(np.any(np.diff((D_mat > 0).astype(int), axis=0) < 0)),
-        method="ife" if method == "fe" else method,
+        method=method,
         binary=False,
         beta=beta,
         beta_se=beta_se,
@@ -567,6 +652,7 @@ def fect(
         est_summary={
             "se_obs": (float(est_att_df.attrs.get("se_obs")) if est_att_df is not None and "se_obs" in est_att_df.attrs else float("nan")),
             "se_unit": (float(est_att_df.attrs.get("se_unit")) if est_att_df is not None and "se_unit" in est_att_df.attrs else float("nan")),
+            "se_beta": (list(est_att_df.attrs.get("beta_se_boot")) if est_att_df is not None and "beta_se_boot" in est_att_df.attrs else [float("nan"), float("nan")]),
         },
     )
     return out
