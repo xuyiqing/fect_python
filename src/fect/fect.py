@@ -64,6 +64,7 @@ class FectResult:
         show_count: bool = True,
         proportion: float = 0.3,
         main: Optional[str] = None,
+        xlab: Optional[str] = None,
         ylab: Optional[str] = None,
         cex_main: Optional[float] = None,
         cex_lab: Optional[float] = None,
@@ -71,6 +72,16 @@ class FectResult:
         cex_text: Optional[float] = None,
         xlim: Optional[Tuple[float, float]] = None,
         ylim: Optional[Tuple[float, float]] = None,
+        # new options forwarded to plot_result
+        start0: bool = False,
+        plot_ci: Optional[str] = None,
+        xbreaks: Optional[Iterable[float]] = None,
+        ybreaks: Optional[Iterable[float]] = None,
+        xangle: float = 0.0,
+        yangle: float = 0.0,
+        color: str = "#000000",
+        est_lwidth: float = 1.6,
+        count_height: float = 0.1,
     ):
         from .plot import plot_result as _plot_result
         return _plot_result(
@@ -79,6 +90,7 @@ class FectResult:
             show_count=show_count,
             proportion=proportion,
             main=main,
+            xlab=xlab,
             ylab=ylab,
             cex_main=cex_main,
             cex_lab=cex_lab,
@@ -86,6 +98,15 @@ class FectResult:
             cex_text=cex_text,
             xlim=xlim,
             ylim=ylim,
+            start0=start0,
+            plot_ci=plot_ci,
+            xbreaks=xbreaks,
+            ybreaks=ybreaks,
+            xangle=xangle,
+            yangle=yangle,
+            color=color,
+            est_lwidth=est_lwidth,
+            count_height=count_height,
         )
 
     # Pretty print to mirror R's print(out)
