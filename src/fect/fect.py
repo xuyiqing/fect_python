@@ -168,17 +168,20 @@ def _predict_counterfactual(
     X: np.ndarray,
     force: str,
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    # Delegate to FE implementation in effect.py
-    from .effect import _predict_counterfactual as __predict
-    return __predict(Y, D, I, X, force)
+    from . import _fe as _fe_ext  # required C++ extension
+    Y0, II, beta, _ = _fe_ext.fe_predict_cf(Y, D, I, X, force)
+    Y0 = np.asarray(Y0, dtype=float)
+    II = np.asarray(II, dtype=float)
+    beta = (np.asarray(beta, dtype=float) if beta is not None and beta.size > 0 else None)
+    return Y0, II, beta, None
 def _event_study_from_mats(
     Y: np.ndarray,
     D: np.ndarray,
     I: np.ndarray,
     Y0: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    from .effect import _event_study_from_mats as __ev
-    return __ev(Y, D, I, Y0)
+    from . import _fe as _fe_ext
+    return _fe_ext.event_study(Y, D, I, Y0)
 
 
 def _compute_event_study_se(
@@ -192,13 +195,231 @@ def _compute_event_study_se(
     seed: Optional[int] = None,
     min_T0: int = 5,
 ) -> pd.DataFrame:
-    from .effect import _compute_event_study_se as __se
-    return __se(data, Y, D, X, index, vartype, nboots, seed, min_T0)
+    import numpy as _np
+    import pandas as _pd
+    # Prepare balanced grids
+    Y_mat_all, D_mat_all, I_mat_all, X_arr_all, id_vals, time_vals, X_cols = _check_and_prepare(data, Y, D, X, index)
+    II_all = I_mat_all.copy()
+    II_all[D_mat_all > 0] = 0.0
+    T0_counts = II_all.sum(axis=0)
+    keep_units_mask = T0_counts >= int(min_T0)
+    if not np.all(keep_units_mask):
+        Y_mat_all = Y_mat_all[:, keep_units_mask]
+        D_mat_all = D_mat_all[:, keep_units_mask]
+        I_mat_all = I_mat_all[:, keep_units_mask]
+        II_all = II_all[:, keep_units_mask]
+        if X_arr_all.shape[2] > 0:
+            X_arr_all = X_arr_all[:, keep_units_mask, :]
+    I_use = II_all.sum(axis=1)
+    keep_times_mask = I_use > 0
+    if not np.all(keep_times_mask):
+        Y_mat_all = Y_mat_all[keep_times_mask, :]
+        D_mat_all = D_mat_all[keep_times_mask, :]
+        I_mat_all = I_mat_all[keep_times_mask, :]
+        II_all = II_all[keep_times_mask, :]
+        if X_arr_all.shape[2] > 0:
+            X_arr_all = X_arr_all[keep_times_mask, :, :]
+
+    T, N = Y_mat_all.shape
+    treated_mask_all = (D_mat_all > 0).any(axis=0)
+    idx_tr_all = np.where(treated_mask_all)[0]
+    idx_co_all = np.where(~treated_mask_all)[0]
+    D_fake = (np.cumsum((D_mat_all > 0).astype(int), axis=0) > 0).astype(int)
+    D_fake[I_mat_all <= 0] = 0
+    idx_rev_all = np.where(np.sum((D_fake != (D_mat_all > 0).astype(int)), axis=0) > 0)[0]
+    idx_tr_pure = np.array([i for i in idx_tr_all if i not in set(idx_rev_all)], dtype=int)
+    Ntr = idx_tr_pure.size
+    Nco = idx_co_all.size
+    Nrev = idx_rev_all.size
+
+    def run_once(col_indices: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, float, Optional[np.ndarray]]:
+        Ym = Y_mat_all[:, col_indices]
+        Dm = D_mat_all[:, col_indices]
+        Im = I_mat_all[:, col_indices]
+        Xa = X_arr_all[:, col_indices, :] if X_arr_all is not None and X_arr_all.size > 0 else _np.zeros((T, len(col_indices), 0))
+
+        Y0, _, beta_rep, _ = _predict_counterfactual(Ym, Dm, Im, Xa, "two-way")
+        timeline, att_vec, _ = _event_study_from_mats(Ym, Dm, Im, Y0)
+        eff_rep, _ = _att_from_diff(Ym, Y0, Dm, Im)
+        v = eff_rep[~_np.isnan(eff_rep)]
+        att_obs = float(_np.nanmean(v)) if v.size else float("nan")
+        unit_means: List[float] = []
+        for j in range(eff_rep.shape[1]):
+            col = eff_rep[:, j]
+            if _np.all(_np.isnan(col)):
+                continue
+            m = _np.nanmean(col)
+            if _np.isfinite(m):
+                unit_means.append(float(m))
+        att_unit = float(_np.nanmean(unit_means)) if unit_means else float("nan")
+        return timeline, att_vec, att_obs, att_unit, (beta_rep.copy() if beta_rep is not None else None)
+
+    overall_obs_vals: List[float] = []
+    overall_unit_vals: List[float] = []
+    Y0_full_pre, _, _, _ = _predict_counterfactual(Y_mat_all, D_mat_all, I_mat_all, X_arr_all, "two-way")
+    timeline_full, att_full_pre, counts_full = _event_study_from_mats(Y_mat_all, D_mat_all, I_mat_all, Y0_full_pre)
+    Rlen = int(len(timeline_full))
+    att_rows: List[np.ndarray] = []
+    p = X_arr_all.shape[2] if X_arr_all is not None and X_arr_all.size > 0 else 0
+    beta_mat = [] if p > 0 else None
+
+    if vartype.lower() in {"bootstrap", "boot"}:
+        B = int(max(1, nboots))
+        rng = _np.random.RandomState(seed if seed is not None else None)
+        def _sample_indices_seq() -> _np.ndarray:
+            tries = 0
+            while True:
+                tries += 1
+                if Nrev > 0:
+                    if Ntr > 0 and Nco > 0:
+                        samp_rev = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
+                        samp_tr = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)]
+                        samp_co = idx_co_all[rng.randint(0, Nco, size=Nco)]
+                        samp = _np.concatenate([samp_rev, samp_tr, samp_co])
+                    elif Ntr > 0:
+                        samp_rev = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
+                        samp_tr = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)]
+                        samp = _np.concatenate([samp_rev, samp_tr])
+                    elif Nco > 0:
+                        samp_rev = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
+                        samp_co = idx_co_all[rng.randint(0, Nco, size=Nco)]
+                        samp = _np.concatenate([samp_rev, samp_co])
+                    else:
+                        samp = idx_rev_all[rng.randint(0, Nrev, size=Nrev)]
+                else:
+                    if Nco > 0:
+                        samp_tr = idx_tr_pure[rng.randint(0, max(1, Ntr), size=Ntr)] if Ntr > 0 else _np.array([], dtype=int)
+                        samp_co = idx_co_all[rng.randint(0, Nco, size=Nco)]
+                        samp = _np.concatenate([samp_tr, samp_co])
+                    else:
+                        samp = idx_tr_pure[rng.randint(0, Ntr, size=Ntr)] if Ntr > 0 else _np.array([], dtype=int)
+                if samp.size == 0:
+                    return samp
+                feas = (I_mat_all[:, samp].sum(axis=1) >= 1).all()
+                if feas or tries > 1000:
+                    return samp
+        for _ in range(B):
+            cols = _sample_indices_seq()
+            if cols.size == 0:
+                continue
+            tl, av, att_obs, att_unit, beta_vec = run_once(cols)
+            if tl.size == 0 or (not _np.isfinite(att_obs)):
+                continue
+            row = _np.full((Rlen,), _np.nan, dtype=float)
+            if tl.size > 0:
+                pos = {int(p_): i for i, p_ in enumerate(timeline_full.tolist())}
+                for p__, v in zip(tl.tolist(), av.tolist()):
+                    ip = pos.get(int(p__))
+                    if ip is not None and _np.isfinite(v):
+                        row[ip] = float(v)
+            att_rows.append(row)
+            if _np.isfinite(att_obs):
+                overall_obs_vals.append(att_obs)
+            if _np.isfinite(att_unit):
+                overall_unit_vals.append(att_unit)
+            if beta_mat is not None:
+                if beta_vec is not None and (beta_vec.size if hasattr(beta_vec, 'size') else 0) == p:
+                    beta_mat.append(_np.asarray(beta_vec, dtype=float))
+                else:
+                    beta_mat.append(_np.full((p,), _np.nan))
+    elif vartype.lower() == "jackknife":
+        B = N
+        for j in range(N):
+            cols = _np.array([i for i in range(N) if i != j], dtype=int)
+            if cols.size == 0:
+                continue
+            tl, av, att_obs, att_unit, beta_vec = run_once(cols)
+            row = _np.full((Rlen,), _np.nan, dtype=float)
+            if tl.size > 0:
+                pos = {int(p_): i for i, p_ in enumerate(timeline_full.tolist())}
+                for p__, v in zip(tl.tolist(), av.tolist()):
+                    ip = pos.get(int(p__))
+                    if ip is not None and _np.isfinite(v):
+                        row[ip] = float(v)
+            att_rows.append(row)
+            if _np.isfinite(att_obs):
+                overall_obs_vals.append(att_obs)
+            if _np.isfinite(att_unit):
+                overall_unit_vals.append(att_unit)
+            if beta_mat is not None:
+                if beta_vec is not None and (beta_vec.size if hasattr(beta_vec, 'size') else 0) == p:
+                    beta_mat.append(_np.asarray(beta_vec, dtype=float))
+                else:
+                    beta_mat.append(_np.full((p,), _np.nan))
+    else:
+        raise NotImplementedError("vartype must be 'bootstrap' or 'jackknife'.")
+
+    if len(att_rows) > 0:
+        AttMat = _np.vstack(att_rows)
+    else:
+        AttMat = _np.empty((0, Rlen))
+    se_vec = _np.full((Rlen,), _np.nan, dtype=float)
+    if AttMat.shape[0] > 0:
+        valid_counts = _np.sum(~_np.isnan(AttMat), axis=0).astype(float)
+        with _np.errstate(invalid="ignore", divide='ignore'):
+            means = _np.where(valid_counts > 0, _np.nansum(AttMat, axis=0) / valid_counts, _np.nan)
+        sumsq = _np.nansum((AttMat - means) ** 2, axis=0)
+        mask_cols = valid_counts > 1.0
+        if vartype.lower() == "jackknife":
+            se_vec[mask_cols] = _np.sqrt(((valid_counts[mask_cols] - 1.0) / valid_counts[mask_cols]) * sumsq[mask_cols])
+        else:
+            se_vec[mask_cols] = _np.sqrt(sumsq[mask_cols] / (valid_counts[mask_cols] - 1.0))
+    df_se = pd.DataFrame({"Period": timeline_full.astype(int), "SE": se_vec})
+
+    df_base = pd.DataFrame({"Period": timeline_full, "ATT": att_full_pre, "count": counts_full})
+    out_df = df_base.merge(df_se, on="Period", how="left")
+
+    # 95% CI
+    try:
+        from scipy.stats import norm as _scipy_norm
+        Z97 = float(_scipy_norm.ppf(0.975))
+    except Exception:
+        Z97 = 1.959963984540054
+    out_df["CI.lower"] = out_df["ATT"] - Z97 * out_df["SE"]
+    out_df["CI.upper"] = out_df["ATT"] + Z97 * out_df["SE"]
+
+    # overall SE summaries (obs-weighted and unit-weighted)
+    def _se_from_reps(values: List[float], method: str) -> float:
+        if len(values) <= 1:
+            return float("nan")
+        arr = np.array(values, dtype=float)
+        if method == "jackknife":
+            n = float(arr.size)
+            meanv = float(np.mean(arr))
+            return float(np.sqrt((n - 1.0) / n * np.sum((arr - meanv) ** 2)))
+        else:
+            return float(np.std(arr, ddof=1))
+
+    se_obs = _se_from_reps(overall_obs_vals, vartype.lower())
+    se_unit = _se_from_reps(overall_unit_vals, vartype.lower())
+    out_df.attrs["se_obs"] = se_obs
+    out_df.attrs["se_unit"] = se_unit
+
+    if beta_mat is not None and len(beta_mat) > 0:
+        try:
+            Bmat = _np.vstack(beta_mat)
+            valid_counts_b = _np.sum(~_np.isnan(Bmat), axis=0).astype(float)
+            with _np.errstate(invalid="ignore", divide='ignore'):
+                means = _np.where(valid_counts_b > 0, _np.nansum(Bmat, axis=0) / valid_counts_b, _np.nan)
+            sumsq = _np.nansum((Bmat - means) ** 2, axis=0)
+            mask_b = valid_counts_b > 1.0
+            se_beta = _np.full((Bmat.shape[1],), _np.nan, dtype=float)
+            if vartype.lower() == "jackknife":
+                se_beta[mask_b] = _np.sqrt(((valid_counts_b[mask_b] - 1.0) / valid_counts_b[mask_b]) * sumsq[mask_b])
+            else:
+                se_beta[mask_b] = _np.sqrt(sumsq[mask_b] / (valid_counts_b[mask_b] - 1.0))
+            out_df.attrs["beta_se_boot"] = se_beta.astype(float)
+        except Exception:
+            pass
+
+    return out_df
 
 
 def _att_from_diff(Y: np.ndarray, Y0: np.ndarray, D: np.ndarray, I: np.ndarray) -> Tuple[np.ndarray, pd.DataFrame]:
-    from .effect import _att_from_diff as __att
-    return __att(Y, Y0, D, I)
+    from . import _fe as _fe_ext
+    eff, att_t, counts_t = _fe_ext.att_from_diff(Y, Y0, D, I)
+    df = pd.DataFrame({"ATT-calendar": np.asarray(att_t), "count": np.asarray(counts_t)})
+    return np.asarray(eff), df
 
 
 def fect(

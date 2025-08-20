@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=68", "wheel", "pybind11>=2.11", "numpy>=1.22"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -34,6 +34,8 @@ Homepage = "https://github.com/your-org/fect-py"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+## Removed invalid ext_modules section; extension is configured in setup.py
 
 [tool.setuptools.packages.find]
 where = ["src"]

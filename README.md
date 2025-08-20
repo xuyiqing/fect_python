@@ -16,6 +16,16 @@ or in editable mode during development:
 pip install -e .
 ```
 
+### Optional: build the C++ extension for speed
+
+The package includes an optional pybind11 C++ backend to accelerate the FE counterfactual solver. To build it, install with the `dev` extras:
+
+```bash
+pip install -e .[dev]
+```
+
+If the extension fails to build, the package will fall back to a pure-Python implementation.
+
 ## Quick start
 
 ```python
