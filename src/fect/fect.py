@@ -661,8 +661,8 @@ def fect(
         # Use MC-specific predictor with soft-impute shrinkage; expose lambda via kwargs (default from R code ~ lambda.cv)
         lambda_cv = float(kwargs.get("lambda_cv", 0.0) or 0.0)
         try:
-            from . import _ife as _ife_ext
-            Y0_full, II_full, beta, beta_se = _ife_ext.mc_predict_cf_r(
+            from . import _mc as _mc_ext
+            Y0_full, II_full, beta, beta_se = _mc_ext.mc_predict_cf_r(
                 Y_orig_store,
                 D_orig_store,
                 I_orig_store,

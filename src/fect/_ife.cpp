@@ -411,70 +411,10 @@ py::tuple ife_predict_cf_r(py::array_t<double, py::array::c_style | py::array::f
   return py::make_tuple(Y0, II_arr, beta_arr, py::none());
 }
 
-// Matrix Completion predictor closely following R's inter_fe_mc (without W)
-py::tuple mc_predict_cf_r(py::array_t<double, py::array::c_style | py::array::forcecast> Y,
-                          py::array_t<double, py::array::c_style | py::array::forcecast> D,
-                          py::array_t<double, py::array::c_style | py::array::forcecast> I,
-                          py::object X_obj,
-                          const std::string& force_str,
-                          int r,
-                          double lambda) {
-  if (Y.ndim() != 2 || D.ndim() != 2 || I.ndim() != 2) throw std::invalid_argument("Y, D, I must be 2D arrays");
-  const size_t T = (size_t)Y.shape(0); const size_t N = (size_t)Y.shape(1);
-  int force = 3; if (force_str=="none") force=0; else if (force_str=="unit") force=1; else if (force_str=="time") force=2; else force=3;
-  size_t p=0; bool hasX=false; py::array_t<double> X;
-  if(!X_obj.is_none()){ X=X_obj.cast<py::array_t<double, py::array::c_style | py::array::forcecast>>(); if(X.ndim()!=3|| (size_t)X.shape(0)!=T || (size_t)X.shape(1)!=N) throw std::invalid_argument("X must be (T,N,p)"); p=(size_t)X.shape(2); hasX=(p>0); }
-  // Build II = I with treated set to 0
-  const double* Dp=D.data(); const double* Ip=I.data();
-  py::array_t<double> II_arr({(py::ssize_t)T,(py::ssize_t)N}); double* IIp = II_arr.mutable_data();
-  for(size_t t=0;t<T;++t){ for(size_t n=0;n<N;++n){ double mask=(Dp[idx(t,n,N)]>0.0)?0.0:Ip[idx(t,n,N)]; IIp[idx(t,n,N)] = (mask>0.0)?1.0:0.0; }}
-  // Initialization using controls-only FE + optional covariates
-  py::array_t<double> Y0_init({(py::ssize_t)T,(py::ssize_t)N});
-  try { if(hasX) Y0_init = initial_fit_py(Y, II_arr, X, force); else Y0_init = initial_fit_py(Y, II_arr, py::array_t<double>(), force); } catch (...) {}
-  // EM with soft-impute for interactive FE
-  const double tol = 1e-5; const int max_iter = 1000;
-  py::dict res;
-  if (!hasX) {
-    // No covariates: iterate fitting with shrinkage
-    py::array_t<double> fit = Y0_init; py::array_t<double> fit_old = Y0_init; int niter = 0; py::dict ife_out;
-    while (true) {
-      auto YY = E_adj_py(Y, fit, II_arr);
-      ife_out = ife_py(YY, force, 1, r, 0, lambda);
-      fit = ife_out["FE"].cast<py::array_t<double>>();
-      double num = 0.0, den = 0.0; const double* fp = fit.data(); const double* fo = fit_old.data(); for (ssize_t i = 0; i < (ssize_t)(T*N); ++i) { double d = fp[i] - fo[i]; num += d * d; den += fo[i] * fo[i]; }
-      ++niter; fit_old = fit; if (den > 0 && std::sqrt(num / den) < tol) break; if (niter >= max_iter) break;
-    }
-    res = py::dict(); res["fit"] = fit;
-  } else {
-    // With covariates: alternating updates with shrinkage on interactive FE
-    py::array_t<double> fit = Y0_init; py::array_t<double> fit_old = Y0_init; py::array_t<double> beta({(py::ssize_t)p, (py::ssize_t)1}); std::fill(beta.mutable_data(), beta.mutable_data() + p, 0.0);
-    auto xx = XXinv_py(X);
-    int niter = 0; py::dict ife_out; const double* Xp = X.data();
-    while (true) {
-      auto YY = E_adj_py(Y, fit, II_arr);
-      // covar fit from current beta
-      py::array_t<double> covar_fit({(py::ssize_t)T, (py::ssize_t)N}); double* cf = covar_fit.mutable_data(); const double* bp = beta.data();
-      for (ssize_t t = 0; t < (ssize_t)T; ++t) for (ssize_t n = 0; n < (ssize_t)N; ++n) { size_t base = ((size_t)t * (size_t)N + (size_t)n) * (size_t)p; double s = 0.0; for (ssize_t k = 0; k < (ssize_t)p; ++k) s += Xp[base + k] * bp[k]; cf[idx((size_t)t, (size_t)n, (size_t)N)] = s; }
-      py::array_t<double> U({(py::ssize_t)T, (py::ssize_t)N}); double* Up = U.mutable_data(); const double* YYp = YY.data(); for (ssize_t i = 0; i < (ssize_t)(T*N); ++i) Up[i] = YYp[i] - cf[i];
-      ife_out = ife_py(U, force, 1, r, 0, lambda);
-      auto FE = ife_out["FE"].cast<py::array_t<double>>();
-      beta = panel_beta_py(X, xx, YY, FE);
-      const double* bp2 = beta.data(); for (ssize_t t = 0; t < (ssize_t)T; ++t) for (ssize_t n = 0; n < (ssize_t)N; ++n) { size_t base = ((size_t)t * (size_t)N + (size_t)n) * (size_t)p; double s = 0.0; for (ssize_t k = 0; k < (ssize_t)p; ++k) s += Xp[base + k] * bp2[k]; cf[idx((size_t)t, (size_t)n, (size_t)N)] = s; }
-      for (ssize_t i = 0; i < (ssize_t)(T * N); ++i) fit.mutable_data()[i] = FE.data()[i] + cf[i];
-      double num = 0.0, den = 0.0; const double* fp = fit.data(); const double* fo = fit_old.data(); for (ssize_t i = 0; i < (ssize_t)(T*N); ++i) { double d = fp[i] - fo[i]; num += d * d; den += fo[i] * fo[i]; }
-      ++niter; fit_old = fit; if (den > 0 && std::sqrt(num / den) < tol) break; if (niter >= max_iter) break;
-    }
-    res = py::dict(); res["fit"] = fit; res["beta"] = beta;
-  }
-  auto Y0 = res["fit"].cast<py::array_t<double>>();
-  py::array_t<double> beta_arr({(py::ssize_t)p}); if (hasX && res.contains("beta")) beta_arr = res["beta"].cast<py::array_t<double>>();
-  return py::make_tuple(Y0, II_arr, beta_arr, py::none());
-}
 
 PYBIND11_MODULE(_ife, m) {
   m.doc() = "IFE port matching R logic (pybind11)";
   m.def("ife_predict_cf_r", &ife_predict_cf_r, py::arg("Y"), py::arg("D"), py::arg("I"), py::arg("X") = py::none(), py::arg("force") = std::string("two-way"), py::arg("r") = 1);
-  m.def("mc_predict_cf_r", &mc_predict_cf_r, py::arg("Y"), py::arg("D"), py::arg("I"), py::arg("X") = py::none(), py::arg("force") = std::string("two-way"), py::arg("r") = 1, py::arg("lambda") = 0.0);
 }
 
 

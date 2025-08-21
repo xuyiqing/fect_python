@@ -36,7 +36,14 @@ def get_ext_modules():
         language="c++",
         extra_compile_args=extra_compile_args,
     )
-    return [ext_fe, ext_ife]
+    ext_mc = Extension(
+        name="fect._mc",
+        sources=["src/fect/_mc.cpp"],
+        include_dirs=include_dirs,
+        language="c++",
+        extra_compile_args=extra_compile_args,
+    )
+    return [ext_fe, ext_ife, ext_mc]
 
 if __name__ == "__main__":
     # setup.cfg carries most metadata; we only add the optional extension here
