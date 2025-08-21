@@ -193,7 +193,7 @@ def _predict_counterfactual(
 ) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
     from . import _fe as _fe_ext  # required C++ extension
     
-    if method == "ife" and r > 0:
+    if method in {"ife", "mc"} and r > 0:
         Y0, II, beta, _ = _fe_ext.ife_predict_cf(Y, D, I, X, force, r)
     else:
         Y0, II, beta, _ = _fe_ext.fe_predict_cf(Y, D, I, X, force)
@@ -590,8 +590,8 @@ def fect(
 ) -> FectResult:
     if binary:
         raise NotImplementedError("binary=True not yet supported in Python port.")
-    if method not in {"fe", "ife"}:
-        raise NotImplementedError("Only method='fe' and method='ife' are supported.")
+    if method not in {"fe", "ife", "mc"}:
+        raise NotImplementedError("Only method='fe', method='ife', and method='mc' are supported.")
 
     Y_mat, D_mat, I_mat, X_arr, id_vals, time_vals, X_cols = _check_and_prepare(
         data, Y, D, X, index
@@ -638,9 +638,11 @@ def fect(
             X_arr = X_arr[keep_times, :, :]
         time_vals = [v for v, k in zip(time_vals, keep_times) if k]
 
-    # Determine r for IFE method
+    # Determine r for IFE/MC methods
     if method == "ife" and r <= 0:
-        # Default r=1 for IFE method
+        r = 1
+    elif method == "mc" and r <= 0:
+        # R's mc uses hasF=1 by default
         r = 1
     elif method == "fe":
         r = 0
@@ -649,12 +651,28 @@ def fect(
     # Use original Y for both FE and IFE; the solver uses II built from D/I internally
     # If using IFE with r>0, call the R-aligned C++ module `_ife` to minimize
     # any discrepancy with the R package; otherwise fall back to _fe
-    if method == "ife" and r > 0:
+    if (method == "ife") and r > 0:
         try:
             from . import _ife as _ife_ext  # new module mirroring R's logic
             Y0_full, II_full, beta, beta_se = _ife_ext.ife_predict_cf_r(Y_orig_store, D_orig_store, I_orig_store, X_orig_store if X_orig_store is not None and X_orig_store.size > 0 else None, force, int(r))
         except Exception:
             Y0_full, II_full, beta, beta_se = _predict_counterfactual(Y_orig_store, D_orig_store, I_orig_store, X_orig_store, force, method, r)
+    elif (method == "mc") and r > 0:
+        # Use MC-specific predictor with soft-impute shrinkage; expose lambda via kwargs (default from R code ~ lambda.cv)
+        lambda_cv = float(kwargs.get("lambda_cv", 0.0) or 0.0)
+        try:
+            from . import _ife as _ife_ext
+            Y0_full, II_full, beta, beta_se = _ife_ext.mc_predict_cf_r(
+                Y_orig_store,
+                D_orig_store,
+                I_orig_store,
+                X_orig_store if X_orig_store is not None and X_orig_store.size > 0 else None,
+                force,
+                int(r),
+                float(lambda_cv),
+            )
+        except Exception:
+            Y0_full, II_full, beta, beta_se = _predict_counterfactual(Y_orig_store, D_orig_store, I_orig_store, X_orig_store, force, "ife", r)
     else:
         Y0_full, II_full, beta, beta_se = _predict_counterfactual(Y_orig_store, D_orig_store, I_orig_store, X_orig_store, force, method, r)
 
@@ -694,7 +712,7 @@ def fect(
         eff=eff,
         eff_calendar=eff_calendar,
         hasRevs=bool(np.any(np.diff((D_mat > 0).astype(int), axis=0) < 0)),
-        method=method,
+        method=("mc" if method == "mc" else method),
         binary=False,
         beta=beta,
         beta_se=beta_se,

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel", "pybind11>=2.11", "numpy>=1.22"]
+requires = ["setuptools>=68", "wheel", "pybind11>=2.12", "numpy>=2.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,7 +11,7 @@ authors = [{ name = "FEct Python Port" }]
 license = { text = "MIT" }
 requires-python = ">=3.9"
 dependencies = [
-  "numpy>=1.22",
+  "numpy>=2.0",
   "scipy>=1.9",
   "pandas>=1.4",
   "matplotlib>=3.5",

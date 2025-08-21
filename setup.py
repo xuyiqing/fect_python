@@ -13,6 +13,12 @@ def get_ext_modules():
     include_dirs = []
     if PYBIND11_INCLUDE is not None:
         include_dirs.append(PYBIND11_INCLUDE)
+    # Ensure NumPy headers from the active environment (NumPy>=2) are used at build time
+    try:
+        import numpy as _np
+        include_dirs.append(_np.get_include())
+    except Exception:
+        pass
     extra_compile_args = ["-O3", "-std=c++17"]
     if sys.platform == "darwin":
         extra_compile_args.append("-mmacosx-version-min=10.14")
