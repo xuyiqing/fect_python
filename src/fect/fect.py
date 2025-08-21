@@ -208,8 +208,68 @@ def _event_study_from_mats(
     I: np.ndarray,
     Y0: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    from . import _fe as _fe_ext
-    return _fe_ext.event_study(Y, D, I, Y0)
+    """Compute event-study ATT by relative time including pre-treatment periods.
+
+    This mirrors the R package behavior and the pure-Python implementation in
+    effect.py, ensuring periods r < 0 are included. It replaces the previous
+    call to the C++ helper which only returned post-treatment periods.
+    """
+    import numpy as _np
+    T, N = Y.shape
+
+    # first treatment onset per unit (index), if any
+    first_on = _np.full(N, _np.nan)
+    for j in range(N):
+        dcol = (D[:, j] > 0).astype(int)
+        idx = _np.where(dcol == 1)[0]
+        if idx.size > 0:
+            first_on[j] = idx[0]
+
+    treated = _np.where(_np.isfinite(first_on))[0]
+    if treated.size == 0:
+        return _np.array([], dtype=int), _np.array([], dtype=float), _np.array([], dtype=int)
+
+    # range of relative times across treated units (include pre periods)
+    T0_counts = _np.full(N, _np.nan)
+    for j in treated:
+        T0_counts[j] = int(first_on[j]) - 1
+    T0_valid = T0_counts[_np.isfinite(T0_counts)].astype(int)
+    if T0_valid.size == 0:
+        return _np.array([], dtype=int), _np.array([], dtype=float), _np.array([], dtype=int)
+    rmin = 1 - int(_np.max(T0_valid))
+    rmax = T - int(_np.min(T0_valid))
+    timeline = _np.arange(rmin, rmax + 1, dtype=int)
+    R = timeline.size
+
+    # stack outcomes and counterfactuals by relative time
+    Y_tr_aug = _np.full((R, N), _np.nan)
+    Y_ct_aug = _np.full((R, N), _np.nan)
+    for j in treated:
+        t0c = int(T0_counts[j])
+        for t in range(T):
+            if I[t, j] != 1:
+                continue
+            r = t - t0c
+            ridx = r - rmin
+            if ridx < 0 or ridx >= R:
+                continue
+            include = (r <= 0) or ((r > 0) and (D[t, j] == 1))
+            if include:
+                Y_tr_aug[ridx, j] = Y[t, j]
+                Y_ct_aug[ridx, j] = Y0[t, j]
+
+    # require counterfactual to be present
+    Y_tr_aug[_np.isnan(Y_ct_aug)] = _np.nan
+    tr_cnt = _np.sum(~_np.isnan(Y_tr_aug), axis=1).astype(float)
+    ct_cnt = _np.sum(~_np.isnan(Y_ct_aug), axis=1).astype(float)
+    tr_sum = _np.nansum(Y_tr_aug, axis=1)
+    ct_sum = _np.nansum(Y_ct_aug, axis=1)
+    with _np.errstate(invalid="ignore", divide='ignore'):
+        tr_bar = _np.where(tr_cnt > 0, tr_sum / tr_cnt, _np.nan)
+        ct_bar = _np.where(ct_cnt > 0, ct_sum / ct_cnt, _np.nan)
+    att = tr_bar - ct_bar
+    counts = _np.sum(_np.isfinite(Y_tr_aug), axis=1).astype(int)
+    return timeline, att, counts
 
 
 def _compute_event_study_se(
@@ -536,10 +596,11 @@ def fect(
     Y_mat, D_mat, I_mat, X_arr, id_vals, time_vals, X_cols = _check_and_prepare(
         data, Y, D, X, index
     )
-    # Keep originals for plotting-level counts (R uses original grids)
+    # Keep originals for plotting/ATT (R computes ATT on original grid)
     Y_orig_store = Y_mat.copy()
     D_orig_store = D_mat.copy()
     I_orig_store = I_mat.copy()
+    X_orig_store = X_arr.copy()
 
     # Preprocess to mirror key FEct steps
     # 1) Mask treated as missing for fitting
@@ -584,13 +645,21 @@ def fect(
     elif method == "fe":
         r = 0
     
-    # Fit counterfactual using FE or IFE method on untreated observations after filtering
-    # Use YY (with treated obs set to 0) instead of Y_mat for IFE
-    Y_input = YY if method == "ife" else Y_mat
-    Y0, II, beta, beta_se = _predict_counterfactual(Y_input, D_mat, I_mat, X_arr, force, method, r)
+    # Fit counterfactual on FULL original grid to mirror R (mask handles treated/missing)
+    # Use original Y for both FE and IFE; the solver uses II built from D/I internally
+    # If using IFE with r>0, call the R-aligned C++ module `_ife` to minimize
+    # any discrepancy with the R package; otherwise fall back to _fe
+    if method == "ife" and r > 0:
+        try:
+            from . import _ife as _ife_ext  # new module mirroring R's logic
+            Y0_full, II_full, beta, beta_se = _ife_ext.ife_predict_cf_r(Y_orig_store, D_orig_store, I_orig_store, X_orig_store if X_orig_store is not None and X_orig_store.size > 0 else None, force, int(r))
+        except Exception:
+            Y0_full, II_full, beta, beta_se = _predict_counterfactual(Y_orig_store, D_orig_store, I_orig_store, X_orig_store, force, method, r)
+    else:
+        Y0_full, II_full, beta, beta_se = _predict_counterfactual(Y_orig_store, D_orig_store, I_orig_store, X_orig_store, force, method, r)
 
-    # Effects
-    eff, eff_calendar = _att_from_diff(Y_mat, Y0, D_mat, I_mat)
+    # Effects on original grid
+    eff, eff_calendar = _att_from_diff(Y_orig_store, Y0_full, D_orig_store, I_orig_store)
 
     # Optionally compute uncertainty estimates via bootstrap/jackknife on original data grid
     est_att_df: Optional[pd.DataFrame] = None
@@ -609,10 +678,10 @@ def fect(
             est_att_df = None
 
     out = FectResult(
-        Y_dat=Y_mat,
-        Y0_dat=Y0,
-        D_dat=D_mat,
-        I_dat=I_mat,
+        Y_dat=Y_orig_store,
+        Y0_dat=Y0_full,
+        D_dat=D_orig_store,
+        I_dat=I_orig_store,
         Y_orig=Y_orig_store,
         D_orig=D_orig_store,
         I_orig=I_orig_store,

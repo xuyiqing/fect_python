@@ -635,22 +635,19 @@ py::tuple ife_predict_cf(py::array_t<double, py::array::c_style | py::array::for
         }
       }
       
-      // Solve for beta using least squares on observed data
+      // Solve for beta using least squares on the filled sample (as in R):
+      // regress (YY - FE) on X without masking by II
       std::vector<double> XtX(p * p, 0.0);
       std::vector<double> XtY(p, 0.0);
-      
       const double* Xp = X.data();
       for (size_t t = 0; t < T; ++t) {
         for (size_t n = 0; n < N; ++n) {
-          if (II[t * N + n] > 0.0) {  // Only use observed data
-            for (size_t i = 0; i < p; ++i) {
-              const size_t linear_i = ((t * N + n) * p) + i;
-              XtY[i] += Xp[linear_i] * Y_clean[t * N + n];
-              
-              for (size_t j = 0; j < p; ++j) {
-                const size_t linear_j = ((t * N + n) * p) + j;
-                XtX[i * p + j] += Xp[linear_i] * Xp[linear_j];
-              }
+          for (size_t i = 0; i < p; ++i) {
+            const size_t linear_i = ((t * N + n) * p) + i;
+            XtY[i] += Xp[linear_i] * Y_clean[t * N + n];
+            for (size_t j = 0; j < p; ++j) {
+              const size_t linear_j = ((t * N + n) * p) + j;
+              XtX[i * p + j] += Xp[linear_i] * Xp[linear_j];
             }
           }
         }
