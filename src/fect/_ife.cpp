@@ -259,6 +259,33 @@ static py::array_t<double> panel_beta_py(py::array_t<double> X, py::array_t<doub
   py::object np = py::module::import("numpy"); return np.attr("dot")(xxinv, xy).cast<py::array_t<double>>();
 }
 
+// Build initial Y0 similar to R's initialFit on controls: FE on II + optional beta on demeaned X
+static py::array_t<double> initial_fit_py(py::array_t<double> Y, py::array_t<double> I_control, py::array_t<double> X, int force) {
+  const ssize_t T = Y.shape(0), N = Y.shape(1);
+  const bool hasX = (X.ptr() != nullptr && X.ndim() == 3 && X.shape(2) > 0);
+  const double* Yp = Y.data();
+  const double* IIp = I_control.data();
+  // FE on controls
+  double mu; std::vector<double> a, x; recover_additive_fe(Yp, IIp, (size_t)T, (size_t)N, force, mu, a, x);
+  py::array_t<double> FE_add({(py::ssize_t)T,(py::ssize_t)N}); double* FEp = FE_add.mutable_data();
+  for (ssize_t t=0; t<T; ++t) for (ssize_t n=0; n<N; ++n) {
+    double v = mu; if (force==1||force==3) v += a[(size_t)n]; if (force==2||force==3) v += x[(size_t)t]; FEp[idx((size_t)t,(size_t)n,(size_t)N)] = v;
+  }
+  if (!hasX) return FE_add;
+  // Add covariates beta0 using panel_beta with (Y - FE_add)
+  auto xx = XXinv_py(X);
+  auto beta0 = panel_beta_py(X, xx, Y, FE_add);
+  const double* Xp = X.data(); const double* b0 = beta0.data(); const ssize_t p = X.shape(2);
+  py::array_t<double> Y0({(py::ssize_t)T,(py::ssize_t)N}); double* Y0p = Y0.mutable_data();
+  for (ssize_t t=0; t<T; ++t) {
+    for (ssize_t n=0; n<N; ++n) {
+      size_t base = ((size_t)t*(size_t)N + (size_t)n)*(size_t)p; double s=0.0; for (ssize_t k=0;k<p;++k) s += Xp[base+k]*b0[k];
+      Y0p[idx((size_t)t,(size_t)n,(size_t)N)] = FEp[idx((size_t)t,(size_t)n,(size_t)N)] + s;
+    }
+  }
+  return Y0;
+}
+
 static py::dict fe_ad_inter_iter_py(py::array_t<double> Y, py::array_t<double> Y0, py::array_t<double> I, int force, int r, double tol, int max_iter) {
   const ssize_t T = Y.shape(0), N = Y.shape(1);
   py::array_t<double> fit = Y0; py::array_t<double> fit_old = Y0; int niter = 0; py::dict ife_out;
@@ -310,20 +337,38 @@ py::tuple ife_predict_cf_r(py::array_t<double, py::array::c_style | py::array::f
   // II: usable observations are untreated controls (as in R)
   std::vector<double> II(T*N,0.0); for(size_t t=0;t<T;++t) for(size_t n=0;n<N;++n){ double mask=(Dp[idx(t,n,N)]>0.0)?0.0:Ip[idx(t,n,N)]; II[idx(t,n,N)]=(mask>0.0)?1.0:0.0; }
 
-  // Call exact R-style iterators
+  // Call exact R-style iterators with II mask (controls-only), as in R's inter_fe_ub
   const double tol = 1e-5; const int max_iter = 1000;
+  // Build initial fit using controls-only FE (closer to R's initialFit)
   py::array_t<double> Y0_init({(py::ssize_t)T,(py::ssize_t)N});
   py::dict res;
+  // Build II from D and I: II = I with treated set to 0 (R: YY uses I where treated are set missing)
+  py::array_t<double> II_arr({(py::ssize_t)T,(py::ssize_t)N});
+  double* IIp = II_arr.mutable_data();
+  for (size_t t = 0; t < T; ++t) {
+    for (size_t n = 0; n < N; ++n) {
+      double mask = (Dp[idx(t,n,N)] > 0.0) ? 0.0 : Ip[idx(t,n,N)];
+      IIp[idx(t,n,N)] = (mask > 0.0 ? 1.0 : 0.0);
+    }
+  }
+  // Compute initialization
+  try {
+    if (hasX) Y0_init = initial_fit_py(Y, II_arr, X, force);
+    else Y0_init = initial_fit_py(Y, II_arr, py::array_t<double>(), force);
+  } catch (...) {
+    // fall back to zeros if any issue
+  }
   if (!hasX) {
-    res = fe_ad_inter_iter_py(Y, Y0_init, py::array_t<double>({(py::ssize_t)T,(py::ssize_t)N}, II.data()), force, r, tol, max_iter);
+    res = fe_ad_inter_iter_py(Y, Y0_init, II_arr, force, r, tol, max_iter);
   } else {
     auto xx = XXinv_py(X);
-    res = fe_ad_inter_covar_iter_py(X, xx, Y, Y0_init, py::array_t<double>({(py::ssize_t)T,(py::ssize_t)N}, II.data()), force, r, tol, max_iter);
+    res = fe_ad_inter_covar_iter_py(X, xx, Y, Y0_init, II_arr, force, r, tol, max_iter);
   }
   auto Y0 = res["fit"].cast<py::array_t<double>>();
   py::array_t<double> beta_arr({(py::ssize_t)p});
   if (hasX && res.contains("beta")) beta_arr = res["beta"].cast<py::array_t<double>>();
-  return py::make_tuple(Y0, py::array_t<double>({(py::ssize_t)T,(py::ssize_t)N}, II.data()), beta_arr, py::none());
+  // Return II as the mask used in fitting (R returns II internally for algorithms)
+  return py::make_tuple(Y0, II_arr, beta_arr, py::none());
 }
 
 PYBIND11_MODULE(_ife, m) {
